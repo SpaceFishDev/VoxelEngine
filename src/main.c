@@ -11,8 +11,15 @@ float random_float()
     return y;
 }
 
+typedef struct
+{
+    uint8_t r, g, b;
+    uint8_t active;
+} __attribute__((packed)) Voxel;
+
 int main()
 {
+    srand(time(0));
     GLFWwindow *window = init_opengl();
 
     if (!window)
@@ -30,17 +37,42 @@ int main()
     glUseProgram(shaderProgram);
     GLint resolutionLocation = glGetUniformLocation(shaderProgram, "resolution");
     glUniform2f(resolutionLocation, (float)width, (float)height);
-    const int NumVoxel = 10 * 10 * 10;
+    const GLint voxel_maximum = 512;
+    GLint max_location = glGetUniformLocation(shaderProgram, "voxelMax");
+    glUniform1i(max_location, voxel_maximum);
 
-    float *buffer = calloc(1, 10 * 10 * 10 * sizeof(GLfloat));
-    for (int i = 10 * 10 + 5 * 10 + 0; i < NumVoxel; i++)
+    Voxel *voxels = malloc(voxel_maximum * voxel_maximum * voxel_maximum * sizeof(Voxel));
+    int i = 0;
+    srand(time(0));
+    for (int x = 0; x < voxel_maximum; ++x)
     {
-        buffer[i] = 1;
+        for (int y = 0; y < voxel_maximum; ++y)
+        {
+            for (int z = 0; z < voxel_maximum; ++z)
+            {
+                if (y < voxel_maximum / 2)
+                {
+                    voxels[i].active = 1;
+                }
+                voxels[i].r = (int)(((float)rand() / (float)RAND_MAX) * 255.99f);
+                ++i;
+            }
+        }
     }
-    GLint VoxelLocation = glGetUniformLocation(shaderProgram, "voxel_map_v1");
-    glUniform1fv(VoxelLocation, NumVoxel * 4, buffer);
+    printf("here\n");
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_3D, textureID);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, voxel_maximum, voxel_maximum, voxel_maximum, 0, GL_RGBA, GL_UNSIGNED_BYTE, voxels);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_3D, textureID);
+    glUniform1i(glGetUniformLocation(shaderProgram, "voxelTexture"), 0);
 
-    // Render loop
     while (!glfwWindowShouldClose(window))
     {
         glfwGetFramebufferSize(window, &width, &height);

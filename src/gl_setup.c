@@ -50,7 +50,7 @@ GLFWwindow *init_opengl()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow *window = glfwCreateWindow(400, 400, "Gradient Shader", NULL, NULL);
+    GLFWwindow *window = glfwCreateWindow(400, 400, "VoxelWorld", NULL, NULL);
     if (!window)
     {
         fprintf(stderr, "Failed to create GLFW window\n");

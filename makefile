@@ -3,6 +3,6 @@ out = main
 
 all: build run
 build:
-	gcc $(src) glad/glad.c -o $(out) -lglfw -lGL 
+	gcc $(src) glad/glad.c -o $(out) -lglfw -lGL -lm 
 run:
 	./main

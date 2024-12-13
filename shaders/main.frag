@@ -1,83 +1,134 @@
 #version 330 core
-out vec4 fragColor;
 
+out vec4 FragColor;
 uniform vec2 resolution;
+uniform sampler3D voxelTexture;
+uniform int voxelMax;
 
-vec3 camera_pos = vec3(0);
-
-struct ray{
-    vec3 origin;
-    vec3 direction;
+struct Camera{
+    vec3 lookfrom;
+    vec3 lookat;
+    float fov;
 };
-vec3 at(ray r, float t){
-    return r.origin + r.direction*t;
-}
-vec3 unit_vector(vec3 v){
-    return v / length(v);
-}
-const float voxel_lim = 10;
 
-uniform float[10*10*10] voxel_map_v1;
+struct Ray{
+    vec3 origin;
+    vec3 dir;
+};
 
-
-
-void marchf(inout ray r, float t)
+Ray create_ray(vec2 uv, Camera camera)
 {
-    r.origin = at(r, t);    
+    float aspect_ratio = resolution.x/resolution.y;
+    float theta = radians(camera.fov);
+    float half_height= tan(theta/2.0);
+    float half_width = aspect_ratio*half_height;
+    vec3 w = normalize(camera.lookfrom-camera.lookat);
+    vec3 u = normalize(cross(vec3(0,1,0),w));
+    vec3 v = cross(w,u);
+    
+    vec3 origin = camera.lookfrom;
+    vec3 lower_left_corner = origin-(u*half_width)-(v*half_height) - w;
+    vec3 horizontal = u*2.0*half_width;
+    vec3 vertical = v*2.0*half_height;
+
+    float xu = uv.x/resolution.x;
+    float yu = uv.y/resolution.y;
+
+    vec3 dir = normalize(lower_left_corner + (horizontal*xu)+(vertical*yu) - origin);
+    return Ray(origin, dir);
+
 }
 
-const float dist = 0.0001;
-
-int vto1d(vec3 pos){
-    pos = round(pos);
-    return int(((pos.z * voxel_lim*voxel_lim) + (pos.y*voxel_lim) + pos.x));
+vec3 byte_color_to_color(int r, int g, int b){
+    return vec3(float(r)/255.9, float(g)/255.9, float(b)/255.9);
 }
 
-vec3 ray_col(ray r)
-{
-    vec3 col = vec3(0,0,0);
+struct hit_record{
+    vec3 pos;
+    vec3 uvw;
+    vec3 normal;
+    ivec3 voxel;
+    float t;
+    bvec3 axis;
+};
 
-    int num_idx = 0;
-    while(true){
-        if(r.origin.x > voxel_lim || r.origin.y > voxel_lim || r.origin.z < 0 || r.origin.z > voxel_lim){
-            return col/num_idx;
-        }
-        int idx = vto1d(r.origin);
-        r.origin = at(r, dist);
-        float data = voxel_map_v1[idx];
-        col += data;
-        ++num_idx;
+#define MAX_RAY_DEPTH 64
+
+bool is_voxel_filled(ivec3 coords){
+    vec4 idx = texture(voxelTexture, coords);
+    return idx.a > 0;
+}
+
+vec3 get_color(ivec3 coords){
+    vec4 idx = texture(voxelTexture, coords);
+    vec3 output_col = vec3(idx.x, idx.y, idx.z);
+    return output_col;
+}
+
+bool ray_cast(Ray r, out hit_record rec){
+    r.dir = normalize(r.dir);
+    if(r.dir.x < 0.0001){
+        r.dir.x = 0.0001;
     }
-    return r.direction;
-}
+    if(r.dir.y < 0.0001){
+        r.dir.y = 0.0001;
+    }
+    if(r.dir.z < 0.0001){
+        r.dir.z = 0.0001;
+    }
 
+    vec3 ray_signf = sign(r.dir);
+    ivec3 ray_sign = ivec3(ray_signf);
+    vec3 ray_step = 1.0/r.dir;
+
+    vec3 ray_origin_grid = floor(r.origin);
+    ivec3 voxel_coords = ivec3(ray_origin_grid);
+
+    vec3 side_distance = ray_origin_grid - r.origin;
+
+    side_distance += 0.5;
+    side_distance += ray_signf*0.5;
+    side_distance *= ray_step;
+
+    bvec3 mask;
+
+    for(int i= 0; i < MAX_RAY_DEPTH; ++i){
+        if(is_voxel_filled(voxel_coords)){
+            rec.axis = mask; 
+
+            rec.pos = side_distance - r.origin;
+            rec.pos += 0.5;
+            rec.pos -= ray_signf*0.5;
+            rec.pos *= ray_step;
+
+            rec.voxel = voxel_coords;
+
+            rec.t = max(rec.pos.x, max(rec.pos.y, rec.pos.z));
+
+            rec.normal = vec3(mask)*-ray_sign;
+
+            rec.uvw = rec.pos - rec.voxel;
+            return true;
+        }
+        mask = lessThanEqual(side_distance.xyz, min(side_distance.yzx, side_distance.zxy));
+        side_distance += vec3(mask) * ray_step;
+        voxel_coords += ivec3(vec3(mask)) * ray_sign;
+    }
+
+    return false;
+}
 
 
 void main(){
-    float focal_length = 1.0f;
-    vec3 lookfrom = vec3(0,0,0);
-    vec3 lookat = vec3(0,0,1);
-    vec3 up = vec3(0,1,0);
-    vec2 _resolution = resolution/voxel_lim;
-    float ScreenW = resolution.x;
-    float ScreenH = resolution.y;
-    float aspect_ratio = ScreenW/ScreenH;
-    float viewport_height = 2.0;
-    float viewport_width = viewport_height*aspect_ratio;
 
-    vec3 w = unit_vector(lookfrom - lookat);
-    vec3 u = unit_vector(cross(up,w));
-    vec3 v = cross(w,u);
-    vec3 horizontal = viewport_width*u;
-    vec3 vertical = viewport_height*v;
-    vec3 lower_left_corner = lookfrom - horizontal/2 - vertical/2 -w;
-    vec2 uv = gl_FragCoord.xy / resolution;
-    vec3 pixel_world_pos = lower_left_corner + uv.x *horizontal + uv.y * vertical;
-    vec3 dir = pixel_world_pos;
-    vec3 origin = vec3(0,0,0);
-    ray r;
-    r.direction = dir;
-    r.origin = origin;
-
-    fragColor = vec4(ray_col(r), 1.0);
+    vec2 uv = gl_FragCoord.xy;
+    Camera camera = Camera(vec3(0,0,0),vec3(0,0,1),90);
+    Ray r = create_ray(uv, camera);
+    hit_record rec;
+    bool hit = ray_cast(r, rec);
+    FragColor = vec4(r.dir,1);    
+    if(hit){
+        vec3 col = get_color(rec.voxel);
+        FragColor = vec4(col,1);
+    }
 }
